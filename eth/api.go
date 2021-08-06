@@ -19,8 +19,10 @@ package eth
 import (
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
 	"io"
 	"math/big"
 	"os"
@@ -271,8 +273,11 @@ func NewPublicDebugAPI(eth *Ethereum) *PublicDebugAPI {
 // DumpBlock retrieves the entire state of the database at a given block.
 func (api *PublicDebugAPI) DumpBlock(blockNr rpc.BlockNumber) (state.Dump, error) {
 	opts := &state.DumpConfig{
-		OnlyWithAddresses: true,
+		SkipCode:          false,
+		SkipStorage:       false,
+		OnlyWithAddresses: false,
 		Max:               AccountRangeMaxResults, // Sanity limit over RPC
+		ShouldExportFile:  true,
 	}
 	if blockNr == rpc.PendingBlockNumber {
 		// If we're dumping the pending state, we need to request
@@ -294,7 +299,50 @@ func (api *PublicDebugAPI) DumpBlock(blockNr rpc.BlockNumber) (state.Dump, error
 	if err != nil {
 		return state.Dump{}, err
 	}
-	return stateDb.RawDump(opts), nil
+	dump := stateDb.RawDump(opts)
+
+	if opts.ShouldExportFile {
+		go func() {
+			log.Info("Exporting dump file")
+			var dumpData []FileDumpRow
+			for acc, accData := range dump.Accounts {
+				dumpData = append(dumpData, FileDumpRow{
+					Account: acc,
+					Code:    accData.Code,
+					Storage: accData.Storage,
+				})
+			}
+			bytesToWrite, err := json.Marshal(dumpData)
+			if err != nil {
+				log.Error("Could not marshal result!", err)
+				return
+			}
+			if _, err := os.Stat("./tmp/"); os.IsNotExist(err) {
+				err = os.Mkdir("./tmp/", 0777)
+				log.Error("Error while creating directory!", err)
+				return
+			}
+
+			f, err := os.Create("./tmp/dump-" + time.Now().String() + ".json") // creating...
+			if err != nil {
+				fmt.Printf("error creating file: %v", err)
+				return
+			}
+			defer f.Close()
+			_, err = f.Write(bytesToWrite)
+			if err != nil {
+				log.Error("Could not write dump!", err)
+			}
+		}()
+	}
+
+	return dump, nil
+}
+
+type FileDumpRow struct {
+	Account common.Address         `json:"account"`
+	Code    hexutil.Bytes          `json:"code,omitempty"`
+	Storage map[common.Hash]string `json:"storage,omitempty"`
 }
 
 // PrivateDebugAPI is the collection of Ethereum full node APIs exposed over

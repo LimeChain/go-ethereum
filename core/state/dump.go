@@ -36,6 +36,7 @@ type DumpConfig struct {
 	OnlyWithAddresses bool
 	Start             []byte
 	Max               uint64
+	ShouldExportFile  bool
 }
 
 // DumpCollector interface which the state trie calls during iteration
@@ -137,13 +138,15 @@ func (s *StateDB) DumpToCollector(c DumpCollector, conf *DumpConfig) (nextKey []
 	)
 	log.Info("Trie dumping started", "root", s.trie.Hash())
 	c.OnRoot(s.trie.Hash())
-
+	log.Info("Here 1")
 	it := trie.NewIterator(s.trie.NodeIterator(conf.Start))
+	log.Info("Here 2")
 	for it.Next() {
 		var data Account
 		if err := rlp.DecodeBytes(it.Value, &data); err != nil {
 			panic(err)
 		}
+		log.Info("Here 3")
 		account := DumpAccount{
 			Balance:   data.Balance.String(),
 			Nonce:     data.Nonce,
@@ -151,6 +154,7 @@ func (s *StateDB) DumpToCollector(c DumpCollector, conf *DumpConfig) (nextKey []
 			CodeHash:  data.CodeHash,
 			SecureKey: it.Key,
 		}
+		log.Info("Here 4")
 		addrBytes := s.trie.GetKey(it.Key)
 		if addrBytes == nil {
 			// Preimage missing
@@ -160,31 +164,44 @@ func (s *StateDB) DumpToCollector(c DumpCollector, conf *DumpConfig) (nextKey []
 			}
 			account.SecureKey = it.Key
 		}
+		log.Info("Here 5")
 		addr := common.BytesToAddress(addrBytes)
+		log.Info("Here 6")
 		obj := newObject(s, addr, data)
+		log.Info("Here 7")
 		if !conf.SkipCode {
+			log.Info("Here 8")
 			account.Code = obj.Code(s.db)
+			log.Info("Here 9")
 		}
 		if !conf.SkipStorage {
+			log.Info("Here 10")
 			account.Storage = make(map[common.Hash]string)
 			storageIt := trie.NewIterator(obj.getTrie(s.db).NodeIterator(nil))
+			log.Info("Here 11")
 			for storageIt.Next() {
+				log.Info("Here 12")
 				_, content, _, err := rlp.Split(storageIt.Value)
 				if err != nil {
 					log.Error("Failed to decode the value returned by iterator", "error", err)
 					continue
 				}
+				log.Info("Here 13")
 				account.Storage[common.BytesToHash(s.trie.GetKey(storageIt.Key))] = common.Bytes2Hex(content)
 			}
 		}
+		log.Info("Here 14")
 		c.OnAccount(addr, account)
+		log.Info("Here 15")
 		accounts++
-		if time.Since(logged) > 8*time.Second {
+
+		if time.Since(logged) > 1*time.Second {
 			log.Info("Trie dumping in progress", "at", it.Key, "accounts", accounts,
 				"elapsed", common.PrettyDuration(time.Since(start)))
 			logged = time.Now()
 		}
 		if conf.Max > 0 && accounts >= conf.Max {
+			log.Info("Here 16")
 			if it.Next() {
 				nextKey = it.Key
 			}
